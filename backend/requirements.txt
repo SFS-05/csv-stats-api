@@ -1,0 +1,60 @@
+# ── Web Framework ─────────────────────────────────────────────────────────────
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
+httpx==0.27.2
+
+# ── Pydantic & Settings ───────────────────────────────────────────────────────
+pydantic==2.10.3
+pydantic-settings==2.6.1
+pydantic[email]==2.10.3
+
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+alembic==1.14.0
+
+# ── Redis & Celery ────────────────────────────────────────────────────────────
+redis==5.2.1
+celery[redis]==5.4.0
+flower==2.0.1
+
+# ── Data Processing ───────────────────────────────────────────────────────────
+pandas==2.2.3
+numpy==2.1.3
+polars==1.15.0
+pyarrow==18.1.0
+duckdb==1.1.3
+openpyxl==3.1.5
+xlrd==2.0.1
+
+# ── Auth & Security ───────────────────────────────────────────────────────────
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+cryptography==43.0.3
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+aiofiles==24.1.0
+aioboto3==13.2.0
+
+# ── Observability ─────────────────────────────────────────────────────────────
+loguru==0.7.3
+prometheus-client==0.21.1
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-exporter-otlp==1.29.0
+
+# ── AI ────────────────────────────────────────────────────────────────────────
+openai==1.57.2
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+httpx==0.27.2
+hypothesis==6.122.3
+factory-boy==3.3.1
+faker==33.1.0
+locust==2.32.4

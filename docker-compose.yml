@@ -1,0 +1,230 @@
+version: "3.9"
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: csvstats-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: csvstats
+      POSTGRES_PASSWORD: csvstats_secret
+      POSTGRES_DB: csvstats
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U csvstats -d csvstats"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: csvstats-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: csvstats-api
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=csvstats
+      - POSTGRES_PASSWORD=csvstats_secret
+      - POSTGRES_DB=csvstats
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SECRET_KEY=dev-secret-key-change-in-production-minimum-64-chars-long-string
+      - LOCAL_STORAGE_PATH=/tmp/csv-stats-uploads
+      - STORAGE_BACKEND=local
+      - LOG_LEVEL=DEBUG
+    volumes:
+      - upload_data:/tmp/csv-stats-uploads
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      uvicorn backend.main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --log-level debug
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ── Celery Worker (Profiling) ───────────────────────────────────────────────
+  worker-profiling:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: csvstats-worker-profiling
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=development
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=csvstats
+      - POSTGRES_PASSWORD=csvstats_secret
+      - POSTGRES_DB=csvstats
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - SECRET_KEY=dev-secret-key-change-in-production-minimum-64-chars-long-string
+      - LOCAL_STORAGE_PATH=/tmp/csv-stats-uploads
+      - STORAGE_BACKEND=local
+    volumes:
+      - upload_data:/tmp/csv-stats-uploads
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A backend.workers.celery_app.celery_app worker
+      --loglevel=info
+      --queues=profiling
+      --concurrency=2
+      --max-tasks-per-child=50
+      --hostname=worker-profiling@%h
+
+  # ── Celery Worker (AI) ──────────────────────────────────────────────────────
+  worker-ai:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: csvstats-worker-ai
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=development
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - POSTGRES_USER=csvstats
+      - POSTGRES_PASSWORD=csvstats_secret
+      - POSTGRES_DB=csvstats
+      - SECRET_KEY=dev-secret-key-change-in-production-minimum-64-chars-long-string
+      - LOCAL_STORAGE_PATH=/tmp/csv-stats-uploads
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    volumes:
+      - upload_data:/tmp/csv-stats-uploads
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      celery -A backend.workers.celery_app.celery_app worker
+      --loglevel=info
+      --queues=ai
+      --concurrency=1
+      --hostname=worker-ai@%h
+
+  # ── Celery Flower (monitoring) ──────────────────────────────────────────────
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: csvstats-flower
+    restart: unless-stopped
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    ports:
+      - "5555:5555"
+    command: >
+      celery -A backend.workers.celery_app.celery_app flower
+      --port=5555
+      --broker=redis://redis:6379/0
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: csvstats-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+  # ── Prometheus ──────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: csvstats-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./infra/docker/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+
+  # ── Grafana ─────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:11.3.2
+    container_name: csvstats-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  upload_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    name: csvstats-network

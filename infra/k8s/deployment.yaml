@@ -1,0 +1,261 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csv-stats-api
+  namespace: csv-stats
+  labels:
+    app: csv-stats-api
+    component: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: csv-stats-api
+      component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: csv-stats-api
+        component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: csv-stats-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: api
+          image: ghcr.io/your-org/csv-stats-api/backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: ENVIRONMENT
+              value: production
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: postgres-host
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: postgres-password
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: redis-host
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: secret-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: openai-api-key
+                  optional: true
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "2Gi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: upload-storage
+              mountPath: /tmp/csv-stats-uploads
+      volumes:
+        - name: upload-storage
+          persistentVolumeClaim:
+            claimName: csv-stats-uploads-pvc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csv-stats-worker-profiling
+  namespace: csv-stats
+  labels:
+    app: csv-stats-api
+    component: worker-profiling
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: csv-stats-api
+      component: worker-profiling
+  template:
+    metadata:
+      labels:
+        app: csv-stats-api
+        component: worker-profiling
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: worker
+          image: ghcr.io/your-org/csv-stats-api/backend:latest
+          command:
+            - celery
+            - -A
+            - backend.workers.celery_app.celery_app
+            - worker
+            - --loglevel=info
+            - --queues=profiling
+            - --concurrency=2
+            - --max-tasks-per-child=50
+          env:
+            - name: ENVIRONMENT
+              value: production
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: postgres-host
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: postgres-password
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: redis-host
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: csv-stats-secrets
+                  key: secret-key
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          volumeMounts:
+            - name: upload-storage
+              mountPath: /tmp/csv-stats-uploads
+      volumes:
+        - name: upload-storage
+          persistentVolumeClaim:
+            claimName: csv-stats-uploads-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: csv-stats-api
+  namespace: csv-stats
+spec:
+  selector:
+    app: csv-stats-api
+    component: api
+  ports:
+    - port: 80
+      targetPort: 8000
+      name: http
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: csv-stats-api
+  namespace: csv-stats
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.csvstats.example.com
+      secretName: csv-stats-tls
+  rules:
+    - host: api.csvstats.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: csv-stats-api
+                port:
+                  number: 80
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: csv-stats-uploads-pvc
+  namespace: csv-stats
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: nfs-client
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csv-stats-api
+  namespace: csv-stats
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: csv-stats-api-hpa
+  namespace: csv-stats
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: csv-stats-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
