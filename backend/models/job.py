@@ -19,7 +19,7 @@ class JobType(str, Enum):
     AI_ANALYSIS = "ai_analysis"
     VISUALIZATION = "visualization"
     EXPORT = "export"
-
+    
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
