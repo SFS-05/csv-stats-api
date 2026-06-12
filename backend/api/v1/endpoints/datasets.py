@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 import duckdb
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from loguru import logger
 
 from backend.api.v1.dependencies import CurrentUser, DBSession
@@ -280,13 +280,14 @@ async def get_profiling(
 @router.delete(
     "/{dataset_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Soft-delete a dataset",
 )
 async def delete_dataset(
     dataset_id: UUID,
     current_user: CurrentUser,
     session: DBSession,
-) -> None:
+):
     repo = DatasetRepository(session)
     dataset = await repo.get_by_id_and_owner(dataset_id, current_user.id)
     if not dataset:

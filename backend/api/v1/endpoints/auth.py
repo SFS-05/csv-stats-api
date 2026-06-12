@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.v1.dependencies import CurrentUser, DBSession
@@ -159,13 +159,14 @@ async def get_me(current_user: CurrentUser) -> UserResponse:
 @router.post(
     "/change-password",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
     summary="Change current user password",
 )
 async def change_password(
     payload: PasswordChangeRequest,
     current_user: CurrentUser,
     session: DBSession,
-) -> None:
+):
     if not verify_password(payload.current_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -8,7 +7,6 @@ import {
   Home,
   LogOut,
   MessageSquare,
-  Settings,
   Zap,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth';

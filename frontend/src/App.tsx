@@ -8,6 +8,11 @@ import Dashboard from '@/pages/Dashboard';
 import DatasetExplorer from '@/pages/DatasetExplorer';
 import AIChat from '@/pages/AIChat';
 import VisualizationStudio from '@/pages/VisualizationStudio';
+import DatasetsPage from '@/pages/DatasetsPage';
+import VisualizationsPage from '@/pages/VisualizationsPage';
+import AIInsightsPage from '@/pages/AIInsightsPage';
+import AIChatPage from '@/pages/AIChatPage';
+import JobsPage from '@/pages/JobsPage';
 import { useAuthStore } from '@/store/auth';
 
 const queryClient = new QueryClient({
@@ -97,7 +102,7 @@ function LoginPage() {
 }
 
 export default function App() {
-  const { loadUser, isAuthenticated } = useAuthStore();
+  const { loadUser } = useAuthStore();
 
   useEffect(() => {
     loadUser();
@@ -117,14 +122,14 @@ export default function App() {
             }
           >
             <Route index element={<Dashboard />} />
-            <Route path="datasets" element={<Dashboard />} />
+            <Route path="datasets" element={<DatasetsPage />} />
             <Route path="datasets/:id" element={<DatasetExplorer />} />
             <Route path="datasets/:id/chat" element={<AIChat />} />
             <Route path="visualizations/:id" element={<VisualizationStudio />} />
-            <Route path="visualizations" element={<Dashboard />} />
-            <Route path="ai-insights" element={<Dashboard />} />
-            <Route path="chat" element={<AIChat />} />
-            <Route path="jobs" element={<Dashboard />} />
+            <Route path="visualizations" element={<VisualizationsPage />} />
+            <Route path="ai-insights" element={<AIInsightsPage />} />
+            <Route path="chat" element={<AIChatPage />} />
+            <Route path="jobs" element={<JobsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

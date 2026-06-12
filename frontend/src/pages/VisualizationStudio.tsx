@@ -72,16 +72,20 @@ const HistogramChart: React.FC<{ datasetId: string; column: string }> = ({ datas
     enabled: !!column,
   })
 
+  const bins = data?.bins ?? []
+  const binLabels = bins.map(bin => `${bin.bin_start.toFixed(1)} - ${bin.bin_end.toFixed(1)}`)
+  const binCounts = bins.map(bin => bin.count)
+
   const option: echarts.EChartsOption = {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     grid: { left: 48, right: 16, top: 16, bottom: 40 },
     xAxis: {
       type: 'category',
-      data: data?.bins ?? [],
+      data: binLabels,
       axisLabel: { rotate: 30, fontSize: 11 },
     },
     yAxis: { type: 'value', name: 'Count', nameTextStyle: { fontSize: 11 } },
-    series: [{ type: 'bar', data: data?.counts ?? [], itemStyle: { color: '#6366f1' }, barMaxWidth: 40 }],
+    series: [{ type: 'bar', data: binCounts, itemStyle: { color: '#6366f1' }, barMaxWidth: 40 }],
   }
 
   return (
@@ -104,9 +108,9 @@ const BoxplotChart: React.FC<{ datasetId: string; columns: string[] }> = ({ data
 
   const isLoading = results.some(r => r.isLoading)
   const boxData = results
-    .filter(r => r.data)
+    .filter(r => r.data && r.data.data)
     .map(r => r.data!)
-    .map(d => [d.min, d.q1, d.median, d.q3, d.max])
+    .map(d => [d.data!.min, d.data!.q1, d.data!.median, d.data!.q3, d.data!.max])
 
   const option: echarts.EChartsOption = {
     tooltip: { trigger: 'item' },
@@ -131,10 +135,16 @@ const CorrelationHeatmap: React.FC<{ datasetId: string }> = ({ datasetId }) => {
   })
 
   const columns: string[] = data?.columns ?? []
-  const matrix: number[][] = data?.matrix ?? []
+  const matrix: (number | null)[][] = data?.matrix ?? []
 
   const heatmapData: [number, number, number][] = []
-  matrix.forEach((row, i) => row.forEach((val, j) => heatmapData.push([j, i, parseFloat(val.toFixed(3))])))
+  matrix.forEach((row, i) =>
+    row.forEach((val, j) => {
+      if (val !== null && val !== undefined) {
+        heatmapData.push([j, i, parseFloat(val.toFixed(3))])
+      }
+    })
+  )
 
   const option: echarts.EChartsOption = {
     tooltip: {
@@ -206,14 +216,18 @@ const BarChart: React.FC<{ datasetId: string; column: string }> = ({ datasetId, 
     enabled: !!column,
   })
 
+  const bars = data?.bars ?? []
+  const labels = bars.map(b => b.value)
+  const values = bars.map(b => b.count)
+
   const option: echarts.EChartsOption = {
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
     grid: { left: 120, right: 16, top: 16, bottom: 16 },
     xAxis: { type: 'value' },
-    yAxis: { type: 'category', data: data?.labels ?? [], axisLabel: { fontSize: 11 } },
+    yAxis: { type: 'category', data: labels, axisLabel: { fontSize: 11 } },
     series: [{
       type: 'bar',
-      data: data?.values ?? [],
+      data: values,
       itemStyle: { color: '#8b5cf6' },
       label: { show: true, position: 'right', fontSize: 11 },
     }],
@@ -221,7 +235,7 @@ const BarChart: React.FC<{ datasetId: string; column: string }> = ({ datasetId, 
 
   return (
     <ChartPanel title="Value Counts" subtitle={column} loading={isLoading} error={error ? String(error) : null}>
-      <EChart option={option} height={Math.max(240, (data?.labels?.length ?? 10) * 28 + 40)} />
+      <EChart option={option} height={Math.max(240, labels.length * 28 + 40)} />
     </ChartPanel>
   )
 }
@@ -376,7 +390,7 @@ export const VisualizationStudio: React.FC = () => {
                       </Badge>
                     </td>
                     <td className="py-2 px-3 text-right text-gray-600">
-                      {col.null_percentage != null ? `${col.null_percentage.toFixed(1)}%` : '—'}
+                      {col.null_pct != null ? `${col.null_pct.toFixed(1)}%` : '—'}
                     </td>
                     <td className="py-2 px-3 text-right text-gray-600">
                       {col.unique_count != null ? formatNumber(col.unique_count) : '—'}

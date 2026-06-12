@@ -2,7 +2,7 @@
  * TanStack Query hooks for dataset operations.
  * Provides typed, cached, and auto-refreshing data fetching.
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { datasetApi, jobApi } from '@/services/api';
 
 // ── Query keys ────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ export function useDatasetPreview(
       datasetApi.preview(id, page, pageSize, sortBy, sortOrder, filterCol, filterVal),
     enabled: !!id,
     staleTime: 30_000,
-    placeholderData: (prev: unknown) => prev,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -116,6 +116,25 @@ export function useJobStatus(jobId: string | null, enabled = true) {
         return false;
       }
       return 2_000;
+    },
+  });
+}
+
+export function useJobs(page = 1, pageSize = 20, status?: string) {
+  return useQuery({
+    queryKey: ['jobs', 'list', page, pageSize, status],
+    queryFn: () => jobApi.list(page, pageSize, status),
+    staleTime: 5_000,
+    refetchInterval: 5_000, // Auto refresh jobs list every 5s
+  });
+}
+
+export function useCancelJob() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => jobApi.cancel(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
     },
   });
 }
