@@ -54,3 +54,7 @@ Thumbs.db
 *.pem
 *.key
 *.crt
+
+.kilocode/
+data/
+dataset/    
