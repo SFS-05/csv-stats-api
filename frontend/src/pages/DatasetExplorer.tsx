@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   useReactTable,
@@ -6,7 +6,6 @@ import {
   flexRender,
   type ColumnDef,
 } from '@tanstack/react-table';
-import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, Search, SortAsc, SortDesc } from 'lucide-react';
 import { useDataset, useDatasetPreview, useDatasetProfiling } from '@/hooks/useDatasets';
 import { formatBytes, formatNumber, formatPct, getStatusBadgeClass } from '@/utils/format';

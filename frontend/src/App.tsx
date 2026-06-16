@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from 'react-hot-toast';
@@ -34,6 +34,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function LoginPage() {
+  const navigate = useNavigate();
   const { login, isLoading } = useAuthStore();
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -44,6 +45,7 @@ function LoginPage() {
     setError('');
     try {
       await login(email, password);
+      navigate('/', { replace: true });
     } catch {
       setError('Invalid email or password');
     }

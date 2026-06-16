@@ -2,7 +2,7 @@
  * Typed API client using axios.
  * All requests go through this module — no raw fetch() calls in components.
  */
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import type {
   AISummary,
   AIRecommendations,
