@@ -15,6 +15,7 @@ import type {
   DatasetProfiling,
   DatasetPreview,
   DatasetSchema,
+  GoogleAuthRequest,
   HistogramData,
   Job,
   LoginRequest,
@@ -81,6 +82,9 @@ export const authApi = {
 
   register: (data: RegisterRequest) =>
     apiClient.post<User>('/auth/register', data).then((r) => r.data),
+
+  googleLogin: (data: GoogleAuthRequest) =>
+    apiClient.post<TokenResponse>('/auth/google', data).then((r) => r.data),
 
   me: () => apiClient.get<User>('/auth/me').then((r) => r.data),
 

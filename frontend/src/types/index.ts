@@ -34,6 +34,11 @@ export interface RegisterRequest {
   full_name?: string;
 }
 
+export interface GoogleAuthRequest {
+  id_token: string;
+  access_token?: string;
+}
+
 // ── Datasets ──────────────────────────────────────────────────────────────────
 export type DatasetStatus =
   | 'pending'
