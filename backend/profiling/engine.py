@@ -59,6 +59,14 @@ class WelfordAccumulator:
         v = self.variance
         return math.sqrt(v) if v is not None else None
 
+    @property
+    def std_dev(self) -> float | None:
+        return self.std
+
+    @property
+    def count(self) -> int:
+        return self.n
+
 
 # ── Reservoir sampler for bounded memory sampling ─────────────────────────────
 class ReservoirSampler:
@@ -68,12 +76,21 @@ class ReservoirSampler:
     Memory: O(k) where k = reservoir size.
     """
 
-    def __init__(self, size: int = 1000) -> None:
-        self._size = size
+    def __init__(self, size: int | None = None, capacity: int | None = None) -> None:
+        if size is None and capacity is None:
+            size = 1000
+        if size is not None and capacity is not None and size != capacity:
+            raise ValueError("size and capacity must match when both are provided")
+
+        self._size = capacity if capacity is not None else size or 1000
+        self.capacity = self._size
         self._reservoir: list[Any] = []
         self._count = 0
 
     def add(self, item: Any) -> None:
+        self.update(item)
+
+    def update(self, item: Any) -> None:
         self._count += 1
         if len(self._reservoir) < self._size:
             self._reservoir.append(item)
@@ -87,7 +104,15 @@ class ReservoirSampler:
         return list(self._reservoir)
 
     @property
+    def samples(self) -> list[Any]:
+        return self.sample
+
+    @property
     def total_seen(self) -> int:
+        return self._count
+
+    @property
+    def count(self) -> int:
         return self._count
 
 
@@ -208,6 +233,28 @@ def iter_chunks(
 
 
 # ── Main profiling engine ─────────────────────────────────────────────────────
+@dataclass
+class ProfilingColumnResult:
+    name: str
+    inferred_type: str
+    null_count: int
+    null_percentage: float
+    unique_count: int | None = None
+    mean: float | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    std_dev: float | None = None
+    raw: dict[str, Any] | None = None
+
+
+@dataclass
+class ProfilingResult:
+    row_count: int
+    column_count: int
+    columns: list[ProfilingColumnResult]
+    raw: dict[str, Any]
+
+
 class ProfilingEngine:
     """
     Streaming profiling engine.
@@ -267,6 +314,57 @@ class ProfilingEngine:
             f"{state.column_count} columns"
         )
         return result
+
+    def profile_file(
+        self,
+        file_path: str,
+        file_format: str = "csv",
+        progress_callback=None,
+    ) -> ProfilingResult:
+        """Compatibility wrapper for older tests and callers using profile_file()."""
+        result = self.profile(file_path=file_path, file_format=file_format, progress_callback=progress_callback)
+        return self._to_compat_result(result)
+
+    def _to_compat_result(self, result: dict[str, Any]) -> ProfilingResult:
+        columns: list[ProfilingColumnResult] = []
+
+        for profile in result.get("column_profiles", []):
+            numeric_stats = profile.get("numeric_stats") or {}
+            categorical_stats = profile.get("categorical_stats") or {}
+            datetime_stats = profile.get("datetime_stats") or {}
+            text_stats = profile.get("text_stats") or {}
+
+            columns.append(
+                ProfilingColumnResult(
+                    name=profile.get("column_name", ""),
+                    inferred_type=profile.get("inferred_type", "categorical"),
+                    null_count=int(profile.get("null_count", 0) or 0),
+                    null_percentage=float(profile.get("null_pct", 0.0) or 0.0),
+                    unique_count=profile.get("unique_count"),
+                    mean=numeric_stats.get("mean"),
+                    min_value=numeric_stats.get("min"),
+                    max_value=numeric_stats.get("max"),
+                    std_dev=numeric_stats.get("std"),
+                    raw=profile,
+                )
+            )
+
+            # Backfill compatibility fields expected by tests on the column object.
+            if profile.get("inferred_type") == "categorical":
+                columns[-1].unique_count = categorical_stats.get("cardinality", profile.get("unique_count"))
+            if profile.get("inferred_type") == "datetime":
+                columns[-1].min_value = datetime_stats.get("min_date")
+                columns[-1].max_value = datetime_stats.get("max_date")
+            if profile.get("inferred_type") == "text":
+                columns[-1].min_value = text_stats.get("min_length")
+                columns[-1].max_value = text_stats.get("max_length")
+
+        return ProfilingResult(
+            row_count=int(result.get("row_count", 0) or 0),
+            column_count=int(result.get("column_count", 0) or 0),
+            columns=columns,
+            raw=result,
+        )
 
     def _process_chunk(
         self,

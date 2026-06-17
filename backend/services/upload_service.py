@@ -85,22 +85,35 @@ class UploadService:
     4. Dispatch profiling job
     """
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        session: AsyncSession | None = None,
+        storage=None,
+        dataset_repo=None,
+        job_repo=None,
+        max_file_size_mb: int | None = None,
+    ) -> None:
         self._session = session
-        self._storage = get_storage_backend()
-        self._dataset_repo = DatasetRepository(session)
-        self._job_repo = JobRepository(session)
+        self._storage = storage or get_storage_backend()
+        self._dataset_repo = dataset_repo or (DatasetRepository(session) if session else None)
+        self._job_repo = job_repo or (JobRepository(session) if session else None)
+        self._max_file_size_mb = max_file_size_mb if max_file_size_mb is not None else settings.MAX_UPLOAD_SIZE_MB
 
     async def upload(
         self,
         file: UploadFile,
-        owner_id: UUID,
+        owner_id: UUID | None = None,
         dataset_name: str | None = None,
+        user_id: UUID | None = None,
     ) -> dict:
         """
         Validate, store, and enqueue a dataset file for profiling.
         Returns dataset and job metadata.
         """
+        owner_id = owner_id or user_id
+        if owner_id is None:
+            raise ValueError("owner_id or user_id is required")
+
         original_filename = file.filename or "unknown"
         content_type = file.content_type or "application/octet-stream"
 
@@ -111,7 +124,7 @@ class UploadService:
         _validate_mime(content_type, file_format)
 
         # ── Step 3: Read file with size limit enforcement ─────────────────────
-        max_bytes = settings.max_upload_bytes
+        max_bytes = self._max_file_size_mb * 1024 * 1024
         data = await self._read_with_limit(file, max_bytes)
 
         # ── Step 4: Magic bytes check ─────────────────────────────────────────

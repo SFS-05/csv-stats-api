@@ -22,6 +22,7 @@ from backend.core.config import settings
 from backend.core.exceptions import DuplicateEmailError
 from backend.repositories.user_repo import UserRepository
 from backend.schemas.auth import (
+    GoogleAuthRequest,
     PasswordChangeRequest,
     RefreshTokenRequest,
     TokenResponse,
@@ -179,4 +180,128 @@ async def change_password(
         update(User)
         .where(User.id == current_user.id)
         .values(hashed_password=hash_password(payload.new_password))
+    )
+
+
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+async def _verify_google_id_token(id_token: str) -> dict:
+    """Verify a Google ID token and return the decoded payload.
+
+    Uses Google's tokeninfo endpoint so we don't need to manage a JWKS cache
+    or pin a specific signing key. In production you should verify the
+    ``aud`` claim matches your ``GOOGLE_CLIENT_ID``.
+    """
+    import httpx
+
+    if not settings.GOOGLE_OAUTH_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google sign-in is not configured on this server",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://oauth2.googleapis.com/tokeninfo",
+                params={"id_token": id_token},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not reach Google verification endpoint: {exc}",
+        )
+
+    if resp.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google ID token",
+        )
+
+    info = resp.json()
+
+    # Validate required claims
+    if "sub" not in info or "email" not in info:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token missing required claims",
+        )
+
+    # Verify the token was issued for our client (if configured)
+    if (
+        settings.GOOGLE_CLIENT_ID
+        and info.get("aud") != settings.GOOGLE_CLIENT_ID
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google token audience mismatch",
+        )
+
+    # Verify the email is verified by Google
+    if info.get("email_verified") not in (True, "true"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google email is not verified",
+        )
+
+    # Optional: restrict to allowed email domains
+    if settings.GOOGLE_ALLOWED_DOMAINS:
+        domain = (info.get("email") or "").split("@", 1)[-1].lower()
+        if domain not in {d.lower() for d in settings.GOOGLE_ALLOWED_DOMAINS}:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Email domain {domain!r} is not allowed",
+            )
+
+    return info
+
+
+@router.post(
+    "/google",
+    response_model=TokenResponse,
+    summary="Sign in or register with a Google ID token",
+)
+async def google_login(payload: GoogleAuthRequest, session: DBSession) -> TokenResponse:
+    """Exchange a Google ``id_token`` (from Google Identity Services) for app JWTs.
+
+    If the Google account is not yet linked to a user, a new account is
+    created automatically. If the email already exists, the existing account
+    is linked to Google.
+    """
+    info = await _verify_google_id_token(payload.id_token)
+
+    google_id: str = info["sub"]
+    email: str = info["email"]
+    full_name: str | None = info.get("name")
+    avatar_url: str | None = info.get("picture")
+
+    repo = UserRepository(session)
+    user, _created = await repo.get_or_create_google_user(
+        google_id=google_id,
+        email=email,
+        full_name=full_name,
+        avatar_url=avatar_url,
+    )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is disabled",
+        )
+
+    role = Role(user.role)
+    access_token = create_access_token(user.id, role, str(uuid4()))
+    refresh_token = create_refresh_token(user.id, role, str(uuid4()))
+
+    from sqlalchemy import update
+    from backend.models.user import User
+    await session.execute(
+        update(User)
+        .where(User.id == user.id)
+        .values(last_login_at=datetime.now(timezone.utc))
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )

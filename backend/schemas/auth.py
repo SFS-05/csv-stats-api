@@ -67,3 +67,12 @@ class PasswordChangeRequest(BaseModel):
         if not any(c.isdigit() for c in v):
             raise ValueError("Password must contain at least one digit")
         return v
+
+
+class GoogleAuthRequest(BaseModel):
+    """Payload sent from the frontend after Google Identity Services returns an id_token."""
+    id_token: str = Field(..., min_length=10, description="Google ID token (JWT)")
+    access_token: str | None = Field(
+        default=None,
+        description="Optional Google access token for additional verification",
+    )

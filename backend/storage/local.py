@@ -23,8 +23,9 @@ class LocalStorageBackend(StorageBackend):
     All keys are validated and resolved relative to the base directory.
     """
 
-    def __init__(self, base_path: Path | None = None) -> None:
-        self._base = (base_path or settings.LOCAL_STORAGE_PATH).resolve()
+    def __init__(self, base_path: Path | str | None = None) -> None:
+        raw_base = base_path if base_path is not None else settings.LOCAL_STORAGE_PATH
+        self._base = Path(raw_base).expanduser().resolve()
         self._base.mkdir(parents=True, exist_ok=True)
 
     def _resolve(self, key: str) -> Path:
@@ -35,6 +36,14 @@ class LocalStorageBackend(StorageBackend):
             from backend.core.exceptions import PathTraversalError
             raise PathTraversalError(f"Resolved path escapes storage root: {key!r}")
         return full_path
+
+    async def store(
+        self,
+        key: str,
+        data: bytes | BinaryIO,
+        content_type: str = "application/octet-stream",
+    ) -> str:
+        return await self.put(key=key, data=data, content_type=content_type)
 
     async def put(
         self,

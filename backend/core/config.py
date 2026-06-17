@@ -38,7 +38,7 @@ class LogLevel(str, Enum):
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=Path(__file__).resolve().parents[2] / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     ALLOWED_HOSTS: list[str] = ["*"]
     CORS_ORIGINS: list[AnyHttpUrl | str] = ["http://localhost:5173", "http://localhost:3000"]
     CORS_ALLOW_CREDENTIALS: bool = True
+
+    # ── Google OAuth ──────────────────────────────────────────────────────────
+    GOOGLE_OAUTH_ENABLED: bool = False
+    GOOGLE_CLIENT_ID: str | None = None
+    GOOGLE_CLIENT_SECRET: str | None = None
+    GOOGLE_REDIRECT_URI: str | None = None
+    GOOGLE_ALLOWED_DOMAINS: list[str] = []
 
     # ── Database ──────────────────────────────────────────────────────────────
     POSTGRES_HOST: str = "localhost"
