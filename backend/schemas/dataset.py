@@ -124,12 +124,24 @@ class ColumnProfile(BaseModel):
     inferred_type: str
     null_count: int
     null_pct: float
-    unique_count: int
-    unique_pct: float
+    unique_count: int | None = None
+    unique_pct: float | None = None
     numeric_stats: NumericStats | None = None
     categorical_stats: CategoricalStats | None = None
     datetime_stats: DatetimeStats | None = None
     text_stats: TextStats | None = None
+
+    @field_validator("unique_pct", "null_pct", mode="before")
+    @classmethod
+    def coerce_none_to_zero(cls, v: Any) -> float:
+        """Coerce None to 0.0 for percentage fields."""
+        return 0.0 if v is None else v
+
+    @field_validator("unique_count", mode="before")
+    @classmethod
+    def coerce_none_to_zero_int(cls, v: Any) -> int:
+        """Coerce None to 0 for count fields."""
+        return 0 if v is None else v
 
 
 class DatasetProfilingResponse(BaseModel):

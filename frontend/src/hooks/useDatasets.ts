@@ -59,12 +59,17 @@ export function useDatasetPreview(
   filterVal?: string
 ) {
   return useQuery({
-    queryKey: datasetKeys.preview(id, page, pageSize),
+    queryKey: [...datasetKeys.preview(id, page, pageSize), { sortBy, sortOrder, filterCol, filterVal }],
     queryFn: () =>
       datasetApi.preview(id, page, pageSize, sortBy, sortOrder, filterCol, filterVal),
     enabled: !!id,
     staleTime: 30_000,
     placeholderData: keepPreviousData,
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      if (status === 409 || status === 425 || status === 404) return false;
+      return failureCount < 2;
+    },
   });
 }
 

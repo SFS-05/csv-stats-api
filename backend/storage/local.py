@@ -78,6 +78,14 @@ class LocalStorageBackend(StorageBackend):
         except OSError as exc:
             raise StorageError(f"Failed to read {key!r}: {exc}") from exc
 
+    async def retrieve(self, key: str) -> bytes:
+        """Retrieve a file by key. Raises FileNotFoundError if not found."""
+        path = self._resolve(key)
+        if not await aiofiles.os.path.exists(path):
+            raise FileNotFoundError(f"Object not found: {key!r}")
+        async with aiofiles.open(path, "rb") as f:
+            return await f.read()
+
     async def stream(
         self, key: str, chunk_size: int = 65_536
     ) -> AsyncIterator[bytes]:
@@ -99,7 +107,7 @@ class LocalStorageBackend(StorageBackend):
         try:
             await aiofiles.os.remove(str(path))
         except FileNotFoundError:
-            pass
+            raise FileNotFoundError(f"Object not found: {key!r}")
         except OSError as exc:
             raise StorageError(f"Failed to delete {key!r}: {exc}") from exc
 

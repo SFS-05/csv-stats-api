@@ -28,6 +28,39 @@ from backend.storage.s3 import get_storage_backend
 router = APIRouter(prefix="/datasets", tags=["Datasets"])
 
 
+def _schema_from_column_profiles(column_profiles: dict | None) -> dict | None:
+    profiles = (column_profiles or {}).get("profiles", [])
+    if not profiles:
+        return None
+
+    columns = []
+    for profile in profiles:
+        name = profile.get("column_name")
+        if not name:
+            continue
+        inferred_type = profile.get("inferred_type") or "categorical"
+        top_values = (profile.get("categorical_stats") or {}).get("top_values", [])
+        sample_values = [
+            item.get("value")
+            for item in top_values
+            if isinstance(item, dict) and "value" in item
+        ][:5]
+        columns.append(
+            {
+                "name": name,
+                "dtype": inferred_type,
+                "inferred_type": inferred_type,
+                "nullable": int(profile.get("null_count") or 0) > 0,
+                "null_count": int(profile.get("null_count") or 0),
+                "null_pct": float(profile.get("null_pct") or 0.0),
+                "unique_count": profile.get("unique_count"),
+                "sample_values": sample_values,
+            }
+        )
+
+    return {"columns": columns} if columns else None
+
+
 @router.post(
     "/upload",
     status_code=status.HTTP_202_ACCEPTED,
@@ -107,7 +140,8 @@ async def get_schema(
     dataset = await repo.get_by_id_and_owner(dataset_id, current_user.id)
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    if not dataset.schema_info:
+    schema_info = dataset.schema_info or _schema_from_column_profiles(dataset.column_profiles)
+    if not schema_info:
         raise HTTPException(
             status_code=status.HTTP_425_TOO_EARLY,
             detail="Schema not yet computed. Check job status.",
@@ -115,7 +149,7 @@ async def get_schema(
     from datetime import datetime
     return DatasetSchemaResponse(
         dataset_id=dataset_id,
-        columns=dataset.schema_info.get("columns", []),
+        columns=schema_info.get("columns", []),
         row_count=dataset.row_count or 0,
         column_count=dataset.column_count or 0,
         memory_usage_bytes=dataset.memory_usage_bytes or 0,
@@ -155,6 +189,15 @@ async def preview_dataset(
 
     storage = get_storage_backend()
     file_path = str(settings.LOCAL_STORAGE_PATH / dataset.storage_key)
+    if not await storage.exists(dataset.storage_key):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The uploaded source file is missing from local storage. "
+                "Schema and profiling can still be shown from saved metadata, "
+                "but preview requires deleting this stale dataset and uploading the file again."
+            ),
+        )
 
     try:
         rows, columns, total = _query_preview(
@@ -263,6 +306,17 @@ async def get_profiling(
     summary = dataset.profiling_summary or {}
     profiles = (dataset.column_profiles or {}).get("profiles", [])
 
+    # Defensive: filter out malformed profiles
+    from backend.schemas.dataset import ColumnProfile
+    valid_profiles = []
+    for idx, profile in enumerate(profiles):
+        try:
+            valid_profiles.append(ColumnProfile(**profile))
+        except Exception as exc:
+            logger.warning(
+                f"Skipping malformed column profile at index {idx}: {exc}"
+            )
+
     return DatasetProfilingResponse(
         dataset_id=dataset_id,
         row_count=summary.get("row_count", 0),
@@ -272,7 +326,7 @@ async def get_profiling(
         duplicate_row_pct=summary.get("duplicate_row_pct", 0.0),
         total_missing_values=summary.get("total_missing_values", 0),
         total_missing_pct=summary.get("total_missing_pct", 0.0),
-        column_profiles=profiles,
+        column_profiles=valid_profiles,
         profiled_at=dataset.processing_completed_at or datetime.utcnow(),
     )
 

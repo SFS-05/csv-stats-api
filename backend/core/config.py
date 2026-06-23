@@ -21,6 +21,9 @@ from pydantic import (
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 class Environment(str, Enum):
     DEVELOPMENT = "development"
     STAGING = "staging"
@@ -193,6 +196,14 @@ class Settings(BaseSettings):
     @classmethod
     def validate_environment(cls, v: Any) -> str:
         return str(v).lower()
+
+    @field_validator("LOCAL_STORAGE_PATH", mode="before")
+    @classmethod
+    def resolve_local_storage_path(cls, v: Any) -> Path:
+        path = Path(v).expanduser()
+        if not path.is_absolute():
+            path = PROJECT_ROOT / path
+        return path.resolve()
 
     @property
     def is_production(self) -> bool:

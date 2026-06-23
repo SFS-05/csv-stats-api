@@ -61,11 +61,14 @@ class WelfordAccumulator:
 
     @property
     def std_dev(self) -> float | None:
+        """Backward-compatible alias expected by older tests."""
         return self.std
 
     @property
     def count(self) -> int:
+        """Backward-compatible alias for the number of values seen."""
         return self.n
+
 
 
 # ── Reservoir sampler for bounded memory sampling ─────────────────────────────
@@ -88,9 +91,6 @@ class ReservoirSampler:
         self._count = 0
 
     def add(self, item: Any) -> None:
-        self.update(item)
-
-    def update(self, item: Any) -> None:
         self._count += 1
         if len(self._reservoir) < self._size:
             self._reservoir.append(item)
@@ -105,7 +105,13 @@ class ReservoirSampler:
 
     @property
     def samples(self) -> list[Any]:
+        """Backward-compatible alias for the older profiling API."""
         return self.sample
+
+    def update(self, item: Any) -> None:
+        """Backward-compatible alias for the older sampler API."""
+        self.add(item)
+
 
     @property
     def total_seen(self) -> int:
@@ -113,7 +119,8 @@ class ReservoirSampler:
 
     @property
     def count(self) -> int:
-        return self._count
+        """Backward-compatible alias for the number of items seen."""
+        return self.total_seen
 
 
 # ── Column-level profiling state ──────────────────────────────────────────────
@@ -138,6 +145,26 @@ class ColumnProfileState:
     # Datetime
     min_date: datetime | None = None
     max_date: datetime | None = None
+
+
+@dataclass
+class LegacyColumnProfile:
+    name: str
+    inferred_type: str
+    null_count: int = 0
+    null_percentage: float = 0.0
+    unique_count: int | None = None
+    mean: float | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    std_dev: float | None = None
+
+
+@dataclass
+class LegacyProfilingResult:
+    row_count: int
+    column_count: int
+    columns: list[LegacyColumnProfile]
 
 
 @dataclass
@@ -488,17 +515,23 @@ class ProfilingEngine:
                 profile["categorical_stats"] = self._compute_categorical_stats(
                     col_state, non_null_count
                 )
-                profile["unique_count"] = len(col_state.value_counter)
-                if non_null_count > 0:
-                    profile["unique_pct"] = round(
-                        len(col_state.value_counter) / non_null_count * 100, 4
-                    )
             elif col_type == "datetime":
                 profile["datetime_stats"] = self._compute_datetime_stats(col_state)
             elif col_type == "text":
                 profile["text_stats"] = self._compute_text_stats(
                     col_state, non_null_count
                 )
+
+            # Always compute unique_pct if we have a value counter
+            if col_state.value_counter and non_null_count > 0:
+                profile["unique_count"] = len(col_state.value_counter)
+                profile["unique_pct"] = round(
+                    len(col_state.value_counter) / non_null_count * 100, 4
+                )
+            elif non_null_count == 0:
+                # All-null column: 0% unique
+                profile["unique_count"] = 0
+                profile["unique_pct"] = 0.0
 
             column_profiles.append(profile)
 

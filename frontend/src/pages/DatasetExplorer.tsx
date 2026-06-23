@@ -6,11 +6,35 @@ import {
   flexRender,
   type ColumnDef,
 } from '@tanstack/react-table';
-import { ChevronLeft, ChevronRight, Search, SortAsc, SortDesc } from 'lucide-react';
-import { useDataset, useDatasetPreview, useDatasetProfiling } from '@/hooks/useDatasets';
+import { ChevronLeft, ChevronRight, Columns3, Search, SortAsc, SortDesc } from 'lucide-react';
+import {
+  useDataset,
+  useDatasetPreview,
+  useDatasetProfiling,
+  useDatasetSchema,
+} from '@/hooks/useDatasets';
 import { formatBytes, formatNumber, formatPct, getStatusBadgeClass } from '@/utils/format';
 import { cn } from '@/utils/cn';
 import type { PreviewRow } from '@/types';
+
+type ApiErrorLike = {
+  message?: string;
+  response?: {
+    data?: {
+      detail?: string;
+      message?: string;
+    };
+  };
+};
+
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  const err = error as ApiErrorLike;
+  const detail = err.response?.data?.detail;
+  if (typeof detail === 'string' && detail.trim()) return detail;
+  const message = err.response?.data?.message ?? err.message;
+  if (typeof message === 'string' && message.trim()) return message;
+  return fallback;
+}
 
 export default function DatasetExplorer() {
   const { id } = useParams<{ id: string }>();
@@ -23,10 +47,23 @@ export default function DatasetExplorer() {
   const [activeTab, setActiveTab] = useState<'preview' | 'profiling' | 'schema'>('preview');
 
   const { data: dataset } = useDataset(id!);
-  const { data: preview, isLoading: previewLoading } = useDatasetPreview(
+  const { data: preview, isLoading: previewLoading, error: previewError } = useDatasetPreview(
     id!, page, pageSize, sortBy, sortOrder, filterCol, filterVal || undefined
   );
   const { data: profiling } = useDatasetProfiling(id!, dataset?.status === 'ready');
+  const {
+    data: schema,
+    isLoading: schemaLoading,
+    error: schemaError,
+  } = useDatasetSchema(id!, dataset?.status === 'ready');
+
+  const previewErrorMessage = previewError
+    ? getApiErrorMessage(previewError, 'Failed to load dataset preview.')
+    : '';
+  const schemaErrorMessage = schemaError
+    ? getApiErrorMessage(schemaError, 'Failed to load dataset schema.')
+    : '';
+  const totalPages = Math.max(1, Math.ceil((preview?.total_rows ?? 0) / pageSize));
 
   const columns: ColumnDef<PreviewRow>[] = (preview?.columns ?? []).map((col) => ({
     id: col,
@@ -63,7 +100,7 @@ export default function DatasetExplorer() {
     columns,
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
-    pageCount: Math.ceil((preview?.total_rows ?? 0) / pageSize),
+    pageCount: totalPages,
   });
 
   if (!dataset) {
@@ -143,7 +180,13 @@ export default function DatasetExplorer() {
 
           {/* Table */}
           <div className="overflow-x-auto">
-            {previewLoading ? (
+            {previewErrorMessage ? (
+              <div className="p-6">
+                <div className="rounded-lg border border-red-800 bg-red-900/20 px-4 py-3 text-sm text-red-300">
+                  {previewErrorMessage}
+                </div>
+              </div>
+            ) : previewLoading ? (
               <div className="p-8 flex justify-center">
                 <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full" />
               </div>
@@ -187,7 +230,7 @@ export default function DatasetExplorer() {
           {/* Pagination */}
           <div className="p-4 border-t border-gray-800 flex items-center justify-between">
             <span className="text-sm text-gray-400">
-              Page {page} of {Math.ceil((preview?.total_rows ?? 0) / pageSize)}
+              Page {page} of {totalPages}
             </span>
             <div className="flex gap-2">
               <button
@@ -266,6 +309,98 @@ export default function DatasetExplorer() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Schema Tab */}
+      {activeTab === 'schema' && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold text-white">Dataset Schema</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                Inferred data types, nullability, uniqueness, and sample values.
+              </p>
+            </div>
+            <span className="text-sm text-gray-400">
+              {schema ? `${formatNumber(schema.columns.length)} columns` : '—'}
+            </span>
+          </div>
+
+          {schemaLoading ? (
+            <div className="p-8 flex justify-center">
+              <div className="animate-spin w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full" />
+            </div>
+          ) : schemaErrorMessage ? (
+            <div className="p-6">
+              <div className="rounded-lg border border-red-800 bg-red-900/20 px-4 py-3 text-sm text-red-300">
+                {schemaErrorMessage}
+              </div>
+            </div>
+          ) : !schema?.columns.length ? (
+            <div className="p-10 text-center text-gray-500">
+              <Columns3 className="w-8 h-8 mx-auto mb-2 text-gray-600" />
+              No schema columns were found.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800 bg-gray-800/40">
+                    <th className="px-4 py-3 text-left font-medium text-gray-300">Column</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-300">Type</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-300">Nullable</th>
+                    <th className="px-4 py-3 text-right font-medium text-gray-300">Nulls</th>
+                    <th className="px-4 py-3 text-right font-medium text-gray-300">Unique</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-300">Sample values</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {schema.columns.map((column) => (
+                    <tr
+                      key={column.name}
+                      className="border-b border-gray-800/60 hover:bg-gray-800/30"
+                    >
+                      <td className="px-4 py-3 font-medium text-white whitespace-nowrap">
+                        {column.name}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex rounded-full border border-indigo-800 bg-indigo-900/40 px-2 py-0.5 text-xs text-indigo-300">
+                          {column.inferred_type || column.dtype}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-300">
+                        {column.nullable ? 'Yes' : 'No'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-300 whitespace-nowrap">
+                        {formatNumber(column.null_count)} ({formatPct(column.null_pct)})
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-300">
+                        {column.unique_count != null ? formatNumber(column.unique_count) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-gray-400">
+                        <div className="flex max-w-xl flex-wrap gap-1.5">
+                          {column.sample_values.length > 0 ? (
+                            column.sample_values.slice(0, 5).map((value, index) => (
+                              <span
+                                key={`${column.name}-${index}`}
+                                className="max-w-40 truncate rounded border border-gray-700 bg-gray-800 px-2 py-0.5 text-xs"
+                                title={String(value)}
+                              >
+                                {String(value)}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-gray-600">—</span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>

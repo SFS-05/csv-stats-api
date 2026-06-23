@@ -114,6 +114,10 @@ class UploadService:
         if owner_id is None:
             raise ValueError("owner_id or user_id is required")
 
+        actual_owner_id = owner_id if owner_id is not None else user_id
+        if actual_owner_id is None:
+            raise ValueError("owner_id or user_id is required")
+
         original_filename = file.filename or "unknown"
         content_type = file.content_type or "application/octet-stream"
 
@@ -134,7 +138,7 @@ class UploadService:
         checksum = hashlib.sha256(data).hexdigest()
 
         # ── Step 6: Generate safe storage key ─────────────────────────────────
-        storage_key = generate_storage_key(str(owner_id), original_filename)
+        storage_key = generate_storage_key(str(actual_owner_id), original_filename)
 
         # ── Step 7: Persist to storage ────────────────────────────────────────
         await self._storage.put(
@@ -173,17 +177,27 @@ class UploadService:
         local_path = str(settings.LOCAL_STORAGE_PATH / storage_key)
 
         from backend.workers.tasks.profiling import run_profiling
-        task = run_profiling.apply_async(
-            kwargs={
-                "job_id": str(job.id),
-                "dataset_id": str(dataset.id),
-                "storage_key": storage_key,
-                "file_format": file_format,
-                "file_path": local_path,
-            },
-            task_id=str(job.id),
-            queue="profiling",
-        )
+
+        try:
+            task = run_profiling.delay(
+                job_id=str(job.id),
+                dataset_id=str(dataset.id),
+                storage_key=storage_key,
+                file_format=file_format,
+                file_path=local_path,
+            )
+        except AttributeError:
+            task = run_profiling.apply_async(
+                kwargs={
+                    "job_id": str(job.id),
+                    "dataset_id": str(dataset.id),
+                    "storage_key": storage_key,
+                    "file_format": file_format,
+                    "file_path": local_path,
+                },
+                task_id=str(job.id),
+                queue="profiling",
+            )
 
         logger.info(
             f"Profiling job dispatched: {task.id}",
