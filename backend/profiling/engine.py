@@ -255,6 +255,8 @@ def iter_chunks(
         else:
             raise MalformedFileError(f"Unsupported format: {fmt!r}")
 
+    except pd.errors.EmptyDataError:
+        yield pd.DataFrame()
     except (pd.errors.ParserError, pa.ArrowInvalid, ValueError) as exc:
         raise MalformedFileError(f"Failed to parse {fmt!r} file: {exc}") from exc
 

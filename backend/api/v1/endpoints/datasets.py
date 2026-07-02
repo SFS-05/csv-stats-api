@@ -7,6 +7,7 @@ from typing import Any
 from uuid import UUID
 
 import duckdb
+import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from loguru import logger
 
@@ -59,6 +60,27 @@ def _schema_from_column_profiles(column_profiles: dict | None) -> dict | None:
         )
 
     return {"columns": columns} if columns else None
+
+
+def _escape_sql_string(value: str) -> str:
+    """Escape a string literal for DuckDB table function SQL snippets."""
+    return value.replace("'", "''")
+
+
+def _quote_identifier(identifier: str) -> str:
+    """Quote a DuckDB identifier after the caller validates it exists."""
+    return '"' + identifier.replace('"', '""') + '"'
+
+
+def _json_safe_value(value: Any) -> Any:
+    """Convert pandas/numpy scalar values into JSON-safe response values."""
+    if pd.isna(value):
+        return None
+    if hasattr(value, "item"):
+        value = value.item()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
 
 
 @router.post(
@@ -210,6 +232,8 @@ async def preview_dataset(
             filter_col=filter_col,
             filter_val=filter_val,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.error(f"Preview query failed: {exc}")
         raise HTTPException(status_code=500, detail="Failed to query dataset")
@@ -236,36 +260,57 @@ def _query_preview(
     filter_val: str | None,
 ) -> tuple[list[dict], list[str], int]:
     """Use DuckDB for efficient in-process SQL querying without loading full dataset."""
-    con = duckdb.connect(database=":memory:")
-
     fmt = file_format.lower()
+    if fmt in ("xlsx", "xls"):
+        return _query_excel_preview(
+            file_path=file_path,
+            page=page,
+            page_size=page_size,
+            sort_by=sort_by,
+            sort_order=sort_order,
+            filter_col=filter_col,
+            filter_val=filter_val,
+        )
+
+    con = duckdb.connect(database=":memory:")
+    escaped_path = _escape_sql_string(file_path)
     if fmt in ("csv", "tsv"):
         sep = "\\t" if fmt == "tsv" else ","
-        source = f"read_csv_auto('{file_path}', sep='{sep}')"
+        source = f"read_csv_auto('{escaped_path}', sep='{sep}')"
     elif fmt == "parquet":
-        source = f"read_parquet('{file_path}')"
+        source = f"read_parquet('{escaped_path}')"
     elif fmt == "json":
-        source = f"read_json_auto('{file_path}')"
+        source = f"read_json_auto('{escaped_path}')"
     elif fmt == "jsonl":
-        source = f"read_ndjson_auto('{file_path}')"
+        source = f"read_ndjson_auto('{escaped_path}')"
     else:
         # Fallback: try CSV
-        source = f"read_csv_auto('{file_path}')"
+        source = f"read_csv_auto('{escaped_path}')"
 
-    # Count total rows
-    count_result = con.execute(f"SELECT COUNT(*) FROM {source}").fetchone()
-    total = count_result[0] if count_result else 0
+    columns_result = con.execute(f"SELECT * FROM {source} LIMIT 0")
+    columns = [desc[0] for desc in columns_result.description]
 
     # Build query
     where_clause = ""
+    params: list[Any] = []
     if filter_col and filter_val:
-        # Parameterized to prevent injection
-        where_clause = f"WHERE CAST(\"{filter_col}\" AS VARCHAR) ILIKE '%{filter_val}%'"
+        if filter_col not in columns:
+            raise ValueError(f"Unknown filter column: {filter_col}")
+        where_clause = f"WHERE CAST({_quote_identifier(filter_col)} AS VARCHAR) ILIKE ?"
+        params.append(f"%{filter_val}%")
 
     order_clause = ""
     if sort_by:
+        if sort_by not in columns:
+            raise ValueError(f"Unknown sort column: {sort_by}")
         direction = "DESC" if sort_order == "desc" else "ASC"
-        order_clause = f'ORDER BY "{sort_by}" {direction}'
+        order_clause = f"ORDER BY {_quote_identifier(sort_by)} {direction}"
+
+    count_result = con.execute(
+        f"SELECT COUNT(*) FROM {source} {where_clause}",
+        params,
+    ).fetchone()
+    total = count_result[0] if count_result else 0
 
     offset = (page - 1) * page_size
     query = f"""
@@ -275,10 +320,55 @@ def _query_preview(
         LIMIT {page_size} OFFSET {offset}
     """
 
-    result = con.execute(query)
-    columns = [desc[0] for desc in result.description]
+    result = con.execute(query, params)
     rows = [dict(zip(columns, row)) for row in result.fetchall()]
     con.close()
+
+    return rows, columns, total
+
+
+def _query_excel_preview(
+    file_path: str,
+    page: int,
+    page_size: int,
+    sort_by: str | None,
+    sort_order: str,
+    filter_col: str | None,
+    filter_val: str | None,
+) -> tuple[list[dict], list[str], int]:
+    """Preview Excel files with pandas because DuckDB does not read .xlsx directly."""
+    df = pd.read_excel(file_path)
+    columns = [str(col) for col in df.columns]
+    df.columns = columns
+
+    if filter_col and filter_val:
+        if filter_col not in columns:
+            raise ValueError(f"Unknown filter column: {filter_col}")
+        mask = df[filter_col].astype(str).str.contains(
+            filter_val,
+            case=False,
+            na=False,
+            regex=False,
+        )
+        df = df[mask]
+
+    if sort_by:
+        if sort_by not in columns:
+            raise ValueError(f"Unknown sort column: {sort_by}")
+        df = df.sort_values(
+            by=sort_by,
+            ascending=sort_order != "desc",
+            kind="mergesort",
+            na_position="last",
+        )
+
+    total = int(len(df))
+    offset = (page - 1) * page_size
+    page_df = df.iloc[offset : offset + page_size]
+    rows = [
+        {column: _json_safe_value(value) for column, value in row.items()}
+        for row in page_df.to_dict(orient="records")
+    ]
 
     return rows, columns, total
 

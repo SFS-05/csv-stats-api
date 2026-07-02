@@ -44,7 +44,7 @@ export default function AIChat() {
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
+    } catch {
       const errorMsg: ChatMessage = {
         role: 'assistant',
         content: 'Sorry, I encountered an error. Please try again.',

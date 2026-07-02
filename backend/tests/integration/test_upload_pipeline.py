@@ -219,11 +219,11 @@ class TestLocalStorageBackend:
     async def test_path_traversal_blocked(self, tmp_path):
         """Path traversal attempts are rejected."""
         from backend.storage.local import LocalStorageBackend
-        from backend.core.exceptions import StorageError
+        from backend.core.exceptions import PathTraversalError
 
         backend = LocalStorageBackend(base_path=str(tmp_path))
 
-        with pytest.raises((StorageError, ValueError, PermissionError)):
+        with pytest.raises(PathTraversalError):
             await backend.store("../../etc/passwd", io.BytesIO(b"evil"))
 
     @pytest.mark.asyncio
@@ -312,7 +312,7 @@ class TestUploadServiceUnit:
         fake_file = MagicMock()
         fake_file.filename = "employees.csv"
         fake_file.content_type = "text/csv"
-        fake_file.read = AsyncMock(return_value=SAMPLE_CSV_SMALL)
+        fake_file.read = AsyncMock(side_effect=[SAMPLE_CSV_SMALL, b""])
         fake_file.size = len(SAMPLE_CSV_SMALL)
 
         with patch("backend.workers.tasks.profiling.run_profiling.delay") as mock_delay:
@@ -392,6 +392,55 @@ class TestDuckDBPreview:
 
         assert result == []  # No match, no error
         conn.close()
+
+    def test_excel_preview_returns_rows(self, tmp_path):
+        """Excel previews use pandas instead of falling back to CSV sniffing."""
+        import pandas as pd
+        from backend.api.v1.endpoints.datasets import _query_preview
+
+        xlsx_path = tmp_path / "unstructured.xlsx"
+        pd.DataFrame(
+            {
+                "title": ["First note", "Second note", "Third note"],
+                "body": ["hello world", "engineering update", "sales update"],
+                "score": [3, 1, 2],
+            }
+        ).to_excel(xlsx_path, index=False)
+
+        rows, columns, total = _query_preview(
+            file_path=str(xlsx_path),
+            file_format="xlsx",
+            page=1,
+            page_size=2,
+            sort_by="score",
+            sort_order="asc",
+            filter_col="body",
+            filter_val="update",
+        )
+
+        assert columns == ["title", "body", "score"]
+        assert total == 2
+        assert [row["title"] for row in rows] == ["Second note", "Third note"]
+
+    def test_excel_chart_column_sample(self, tmp_path):
+        """Chart helpers can load Excel columns without treating them as CSV."""
+        import pandas as pd
+        from backend.visualization.charts import generate_bar_chart
+
+        xlsx_path = tmp_path / "categories.xlsx"
+        pd.DataFrame(
+            {
+                "label": ["spam", "ham", "spam", "updates"],
+                "score": [1, 2, 3, 4],
+            }
+        ).to_excel(xlsx_path, index=False)
+
+        chart = generate_bar_chart(str(xlsx_path), "xlsx", "label", top_n=3)
+
+        assert chart["type"] == "bar"
+        assert chart["total_values"] == 4
+        assert chart["bars"][0]["value"] == "spam"
+        assert chart["bars"][0]["count"] == 2
 
 
 # ---------------------------------------------------------------------------

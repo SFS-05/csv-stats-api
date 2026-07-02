@@ -284,7 +284,7 @@ export default function App() {
 
   useEffect(() => {
     loadUser();
-  }, []);
+  }, [loadUser]);
 
   return (
     <QueryClientProvider client={queryClient}>

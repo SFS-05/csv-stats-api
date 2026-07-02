@@ -42,6 +42,9 @@ def _load_column_sample(
             total += len(batch)
             if total >= max_rows:
                 break
+    elif fmt in ("xlsx", "xls"):
+        df = pd.read_excel(file_path, usecols=[column], nrows=max_rows)
+        return df[column]
     else:
         # Fallback: read full file
         if fmt == "json":
@@ -167,6 +170,8 @@ def generate_correlation_matrix(
     elif fmt == "parquet":
         import pyarrow.parquet as pq
         df = pq.read_table(file_path).to_pandas().head(50_000)
+    elif fmt in ("xlsx", "xls"):
+        df = pd.read_excel(file_path, nrows=50_000)
     else:
         df = pd.read_csv(file_path, nrows=50_000)
 
@@ -231,6 +236,8 @@ def generate_time_series(
         df = pd.read_csv(
             file_path, sep=sep, usecols=[date_column, value_column], nrows=200_000
         )
+    elif fmt in ("xlsx", "xls"):
+        df = pd.read_excel(file_path, usecols=[date_column, value_column], nrows=200_000)
     else:
         df = pd.read_csv(file_path, usecols=[date_column, value_column], nrows=200_000)
 

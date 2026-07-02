@@ -64,7 +64,7 @@ jobs:
           cd backend
           pip install ruff mypy
           ruff check .
-          mypy backend/ --ignore-missing-imports
+          mypy . --ignore-missing-imports
 
       - name: Run unit tests
         env:
@@ -78,6 +78,19 @@ jobs:
         run: |
           cd backend
           pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term-missing
+
+      - name: Run integration tests
+        env:
+          ENVIRONMENT: testing
+          POSTGRES_HOST: localhost
+          POSTGRES_USER: csvstats_test
+          POSTGRES_PASSWORD: test_secret
+          POSTGRES_DB: csvstats_test
+          REDIS_HOST: localhost
+          SECRET_KEY: test-secret-key-minimum-64-chars-long-for-testing-purposes-only
+        run: |
+          cd backend
+          pytest tests/integration/ -v
 
       - name: Run security tests
         env:

@@ -6,7 +6,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.ai.analyzer import DatasetAnalyzer
 from backend.api.v1.dependencies import CurrentUser, DBSession
@@ -22,8 +22,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str
-    history: list[ChatMessage] = []
+    message: str = Field(..., min_length=1, max_length=4000)
+    history: list[ChatMessage] = Field(default_factory=list, max_length=20)
 
 
 async def _get_ready_dataset_with_profiling(dataset_id, current_user, session):

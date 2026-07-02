@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import * as echarts from 'echarts'
@@ -148,7 +148,6 @@ const CorrelationHeatmap: React.FC<{ datasetId: string }> = ({ datasetId }) => {
 
   const option: echarts.EChartsOption = {
     tooltip: {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       formatter: (p: any) => `${columns[p.data[1]]} × ${columns[p.data[0]]}<br/>r = ${p.data[2]}`,
     },
     grid: { left: 80, right: 80, top: 16, bottom: 80 },
@@ -195,7 +194,6 @@ const NullsChart: React.FC<{ datasetId: string }> = ({ datasetId }) => {
     series: [{
       type: 'bar',
       data: nullPcts,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       itemStyle: { color: (p: any) => (p.value > 50 ? '#ef4444' : p.value > 20 ? '#f59e0b' : '#10b981') },
       label: { show: true, position: 'right', formatter: '{c}%', fontSize: 11 },
     }],
@@ -252,11 +250,18 @@ export const VisualizationStudio: React.FC = () => {
     enabled: !!datasetId,
   })
 
-  const numericColumns: string[] =
-    schema?.columns?.filter((c) => c.inferred_type === 'numeric').map((c) => c.name) ?? []
-  const categoricalColumns: string[] =
-    schema?.columns?.filter((c) => c.inferred_type === 'categorical').map((c) => c.name) ?? []
-  const allColumns: string[] = schema?.columns?.map((c) => c.name) ?? []
+  const numericColumns: string[] = useMemo(
+    () => schema?.columns?.filter((c) => c.inferred_type === 'numeric').map((c) => c.name) ?? [],
+    [schema?.columns]
+  )
+  const categoricalColumns: string[] = useMemo(
+    () => schema?.columns?.filter((c) => c.inferred_type === 'categorical').map((c) => c.name) ?? [],
+    [schema?.columns]
+  )
+  const allColumns: string[] = useMemo(
+    () => schema?.columns?.map((c) => c.name) ?? [],
+    [schema?.columns]
+  )
 
   useEffect(() => {
     if (!selectedColumn && allColumns.length > 0) setSelectedColumn(allColumns[0])

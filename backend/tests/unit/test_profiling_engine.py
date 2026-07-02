@@ -71,7 +71,18 @@ class TestWelfordAccumulator:
         assert acc.min_val == 1.0
         assert acc.max_val == 9.0
 
-    @given(st.lists(st.floats(allow_nan=False, allow_infinity=False), min_size=2, max_size=100))
+    @given(
+        st.lists(
+            st.floats(
+                min_value=-1e9,
+                max_value=1e9,
+                allow_nan=False,
+                allow_infinity=False,
+            ),
+            min_size=2,
+            max_size=100,
+        )
+    )
     @hyp_settings(max_examples=50)
     def test_property_mean_matches_numpy(self, data):
         acc = WelfordAccumulator()

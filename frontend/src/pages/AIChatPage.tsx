@@ -60,7 +60,7 @@ export default function AIChatPage() {
         timestamp: new Date().toISOString(),
       };
       setMessages((prev) => [...prev, assistantMsg]);
-    } catch (err) {
+    } catch {
       const errorMsg: ChatMessage = {
         role: 'assistant',
         content: 'Sorry, I encountered an error processing your request. Please make sure the AI service is available and try again.',

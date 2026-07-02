@@ -20,6 +20,7 @@ from backend.visualization.charts import (
     generate_null_distribution,
     generate_time_series,
 )
+from backend.storage.s3 import get_storage_backend
 
 router = APIRouter(prefix="/datasets/{dataset_id}/charts", tags=["Visualizations"])
 
@@ -34,6 +35,15 @@ async def _get_ready_dataset(dataset_id: UUID, current_user, session):
         raise HTTPException(
             status_code=status.HTTP_425_TOO_EARLY,
             detail="Dataset profiling is not complete yet",
+        )
+    storage = get_storage_backend()
+    if not await storage.exists(dataset.storage_key):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The uploaded source file is missing from local storage. "
+                "Re-upload the dataset before generating charts."
+            ),
         )
     return dataset
 
